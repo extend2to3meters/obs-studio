@@ -121,7 +121,7 @@ jobs:
         run: |
           mkdir ./build
           cd ./build
-          cmake -DENABLE_PIPEWIRE=OFF -DUNIX_STRUCTURE=0 -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/obs-studio-portable" -DENABLE_UNIT_TESTS=ON -DENABLE_VLC=ON -DWITH_RTMPS=ON -DBUILD_BROWSER=ON -DCEF_ROOT_DIR="${{ github.workspace }}/cmbuild/cef_binary_${{ env.LINUX_CEF_BUILD_VERSION }}_linux64" -DTWITCH_CLIENTID='${{ env.TWITCH_CLIENTID }}' -DTWITCH_HASH='${{ env.TWITCH_HASH }}' -DRESTREAM_CLIENTID='${{ env.RESTREAM_CLIENTID }}' -DRESTREAM_HASH='${{ env.RESTREAM_HASH }}' ..
+          cmake -DUNIX_STRUCTURE=1 -DCMAKE_INSTALL_PREFIX=/usr -DENABLE_PIPEWIRE=OFF -DBUILD_BROWSER=OFF ..
       - name: 'Build'
         shell: bash
         working-directory: ${{ github.workspace }}/build
@@ -139,7 +139,7 @@ jobs:
           echo "FILE_NAME=${FILE_NAME}" >> $GITHUB_ENV
           cd ./build/rundir/RelWithDebInfo
           mkdir ../nightly
-          tar -cvzf "${FILE_NAME}" ./obs-plugins/64bit/obsplay.so ./data/obs-plugins/obsplay
+          tar -cvzf "${FILE_NAME}" *
           mv "${FILE_NAME}" ../nightly/
           cd -
       - name: 'Publish'
@@ -258,4 +258,5 @@ jobs:
         with:
           name: '${{ env.FILE_NAME }}'
           path: |
-            build/*
+            build/**/obsplay.*
+            build/data/obs-plugins/obsplay
