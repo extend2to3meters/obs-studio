@@ -512,8 +512,8 @@ static obs_data_t *GenerateSaveData(obs_data_array_t *sceneOrder,
 
 	obs_data_array_t *sourcesArray = obs_save_sources_filtered(
 		[](void *data, obs_source_t *source) {
-			return (*static_cast<FilterAudioSources_t *>(data))(
-				source);
+			auto &func = *static_cast<FilterAudioSources_t *>(data);
+			return func(source);
 		},
 		static_cast<void *>(&FilterAudioSources));
 
@@ -3399,10 +3399,13 @@ void OBSBasic::VolControlContextMenu()
 	copyFiltersAction.setEnabled(obs_source_filter_count(vol->GetSource()) >
 				     0);
 
-	if (copyFiltersString == nullptr)
-		pasteFiltersAction.setEnabled(false);
-	else
+	obs_source_t *source = obs_weak_source_get_source(copyFiltersSource);
+	if (source) {
 		pasteFiltersAction.setEnabled(true);
+		obs_source_release(source);
+	} else {
+		pasteFiltersAction.setEnabled(false);
+	}
 
 	QMenu popup;
 	vol->SetContextMenu(&popup);
@@ -4482,8 +4485,8 @@ void OBSBasic::ClearSceneData()
 	programScene = nullptr;
 	prevFTBSource = nullptr;
 
-	copyStrings.clear();
-	copyFiltersString = nullptr;
+	copySources.clear();
+	copyFiltersSource = nullptr;
 	copyFilter = nullptr;
 
 	auto cb = [](void *unused, obs_source_t *source) {
@@ -4531,7 +4534,10 @@ void OBSBasic::closeEvent(QCloseEvent *event)
 				  "geometry",
 				  saveGeometry().toBase64().constData());
 
-	if (outputHandler && outputHandler->Active()) {
+	bool confirmOnExit =
+		config_get_bool(GetGlobalConfig(), "General", "ConfirmOnExit");
+
+	if (confirmOnExit && outputHandler && outputHandler->Active()) {
 		SetShowing(true);
 
 		QMessageBox::StandardButton button = OBSMessageBox::question(
@@ -4831,7 +4837,6 @@ void OBSBasic::on_scenes_currentItemChanged(QListWidgetItem *current,
 
 void OBSBasic::EditSceneName()
 {
-	App()->DisableHotkeys();
 	ui->scenesDock->removeAction(renameScene);
 	QListWidgetItem *item = ui->scenes->currentItem();
 	Qt::ItemFlags flags = item->flags();
@@ -4904,7 +4909,8 @@ void OBSBasic::on_scenes_customContextMenuRequested(const QPoint &pos)
 			SLOT(SceneCopyFilters()));
 		QAction *pasteFilters =
 			new QAction(QTStr("Paste.Filters"), this);
-		pasteFilters->setEnabled(copyFiltersString);
+		pasteFilters->setEnabled(
+			!obs_weak_source_expired(copyFiltersSource));
 		connect(pasteFilters, SIGNAL(triggered()), this,
 			SLOT(ScenePasteFilters()));
 
@@ -5065,9 +5071,7 @@ void OBSBasic::on_actionAddScene_triggered()
 
 void OBSBasic::on_actionRemoveScene_triggered()
 {
-	App()->DisableHotkeys();
 	RemoveSelectedScene();
-	App()->UpdateHotkeyFocusSetting();
 }
 
 void OBSBasic::ChangeSceneIndex(bool relative, int offset, int invalidIdx)
@@ -5277,6 +5281,8 @@ ColorSelect::ColorSelect(QWidget *parent)
 
 void OBSBasic::CreateSourcePopupMenu(int idx, bool preview)
 {
+	UpdateEditMenu();
+
 	QMenu popup(this);
 	delete previewProjectorSource;
 	delete sourceProjector;
@@ -5321,9 +5327,6 @@ void OBSBasic::CreateSourcePopupMenu(int idx, bool preview)
 	if (addSourceMenu)
 		popup.addMenu(addSourceMenu);
 
-	ui->actionCopyFilters->setEnabled(false);
-	ui->actionCopySource->setEnabled(false);
-
 	if (ui->sources->MultipleBaseSelected()) {
 		popup.addSeparator();
 		popup.addAction(QTStr("Basic.Main.GroupItems"), ui->sources,
@@ -5351,7 +5354,6 @@ void OBSBasic::CreateSourcePopupMenu(int idx, bool preview)
 			popup.addSeparator();
 
 		OBSSceneItem sceneItem = ui->sources->Get(idx);
-		bool lock = obs_sceneitem_locked(sceneItem);
 		obs_source_t *source = obs_sceneitem_get_source(sceneItem);
 		uint32_t flags = obs_source_get_output_flags(source);
 		bool isAsyncVideo = (flags & OBS_SOURCE_ASYNC_VIDEO) ==
@@ -5370,19 +5372,8 @@ void OBSBasic::CreateSourcePopupMenu(int idx, bool preview)
 				SLOT(on_actionRemoveSource_triggered()));
 		popup.addSeparator();
 		popup.addMenu(ui->orderMenu);
-		popup.addMenu(ui->transformMenu);
 
-		ui->actionResetTransform->setEnabled(!lock);
-		ui->actionRotate90CW->setEnabled(!lock);
-		ui->actionRotate90CCW->setEnabled(!lock);
-		ui->actionRotate180->setEnabled(!lock);
-		ui->actionFlipHorizontal->setEnabled(!lock);
-		ui->actionFlipVertical->setEnabled(!lock);
-		ui->actionFitToScreen->setEnabled(!lock);
-		ui->actionStretchToScreen->setEnabled(!lock);
-		ui->actionCenterToScreen->setEnabled(!lock);
-		ui->actionVerticalCenter->setEnabled(!lock);
-		ui->actionHorizontalCenter->setEnabled(!lock);
+		popup.addMenu(ui->transformMenu);
 
 		sourceProjector = new QMenu(QTStr("SourceProjector"));
 		AddProjectorMenuMonitors(sourceProjector, this,
@@ -5446,12 +5437,7 @@ void OBSBasic::CreateSourcePopupMenu(int idx, bool preview)
 		popup.addAction(QTStr("Filters"), this, SLOT(OpenFilters()));
 		popup.addAction(QTStr("Properties"), this,
 				SLOT(on_actionSourceProperties_triggered()));
-
-		ui->actionCopyFilters->setEnabled(
-			obs_source_filter_count(source) > 0);
-		ui->actionCopySource->setEnabled(true);
 	}
-	ui->actionPasteFilters->setEnabled(copyFiltersString && idx != -1);
 
 	popup.exec(QCursor::pos());
 }
@@ -5757,8 +5743,6 @@ void OBSBasic::on_actionRemoveSource_triggered()
 	if (!confirmed)
 		return;
 
-	App()->DisableHotkeys();
-
 	/* ----------------------------------------------- */
 	/* save undo data                                  */
 
@@ -5789,7 +5773,6 @@ void OBSBasic::on_actionRemoveSource_triggered()
 	}
 
 	CreateSceneUndoRedoAction(action_name, undo_data, redo_data);
-	App()->UpdateHotkeyFocusSetting();
 }
 
 void OBSBasic::on_actionInteract_triggered()
@@ -6075,7 +6058,6 @@ static void RenameListItem(OBSBasic *parent, QListWidget *listWidget,
 void OBSBasic::SceneNameEdited(QWidget *editor,
 			       QAbstractItemDelegate::EndEditHint endHint)
 {
-	App()->UpdateHotkeyFocusSetting();
 	OBSScene scene = GetCurrentScene();
 	QLineEdit *edit = qobject_cast<QLineEdit *>(editor);
 	string text = QT_TO_UTF8(edit->text().trimmed());
@@ -6431,8 +6413,8 @@ void OBSBasic::SetBroadcastFlowEnabled(bool enabled)
 
 void OBSBasic::SetupBroadcast()
 {
-	Auth *auth = GetAuth();
 #if YOUTUBE_ENABLED
+	Auth *const auth = GetAuth();
 	if (IsYouTubeService(auth->service())) {
 		OBSYoutubeActions *dialog;
 		dialog = new OBSYoutubeActions(this, auth, broadcastReady);
@@ -6484,7 +6466,7 @@ inline void OBSBasic::OnActivate()
 		if (trayIcon && trayIcon->isVisible()) {
 #ifdef __APPLE__
 			QIcon trayMask =
-				QIcon(":/res/images/tray_active_macos.png");
+				QIcon(":/res/images/tray_active_macos.svg");
 			trayMask.setIsMask(true);
 			trayIcon->setIcon(
 				QIcon::fromTheme("obs-tray", trayMask));
@@ -6511,7 +6493,7 @@ inline void OBSBasic::OnDeactivate()
 		if (trayIcon && trayIcon->isVisible()) {
 #ifdef __APPLE__
 			QIcon trayIconFile =
-				QIcon(":/res/images/obs_macos.png");
+				QIcon(":/res/images/obs_macos.svg");
 			trayIconFile.setIsMask(true);
 #else
 			QIcon trayIconFile = QIcon(":/res/images/obs.png");
@@ -6524,7 +6506,7 @@ inline void OBSBasic::OnDeactivate()
 		if (os_atomic_load_bool(&recording_paused)) {
 #ifdef __APPLE__
 			QIcon trayIconFile =
-				QIcon(":/res/images/obs_paused_macos.png");
+				QIcon(":/res/images/obs_paused_macos.svg");
 			trayIconFile.setIsMask(true);
 #else
 			QIcon trayIconFile =
@@ -6535,7 +6517,7 @@ inline void OBSBasic::OnDeactivate()
 		} else {
 #ifdef __APPLE__
 			QIcon trayIconFile =
-				QIcon(":/res/images/tray_active_macos.png");
+				QIcon(":/res/images/tray_active_macos.svg");
 			trayIconFile.setIsMask(true);
 #else
 			QIcon trayIconFile =
@@ -7614,6 +7596,62 @@ void OBSBasic::GetConfigFPS(uint32_t &num, uint32_t &den) const
 config_t *OBSBasic::Config() const
 {
 	return basicConfig;
+}
+
+void OBSBasic::UpdateEditMenu()
+{
+	int idx = GetTopSelectedSourceItem();
+	size_t filter_count = 0;
+	OBSSceneItem sceneItem;
+	OBSSource source;
+
+	if (idx != -1) {
+		sceneItem = ui->sources->Get(idx);
+		source = obs_sceneitem_get_source(sceneItem);
+		filter_count = obs_source_filter_count(source);
+	}
+
+	for (size_t i = copySources.size(); i > 0; i--) {
+		const size_t idx = i - 1;
+		OBSWeakSource &weak = copySources[idx];
+		if (obs_weak_source_expired(weak))
+			copySources.erase(copySources.begin() + idx);
+	}
+
+	ui->actionCopySource->setEnabled(idx != -1);
+	ui->actionEditTransform->setEnabled(idx != -1);
+	ui->actionCopyTransform->setEnabled(idx != -1);
+	ui->actionCopyFilters->setEnabled(filter_count > 0);
+	ui->actionPasteFilters->setEnabled(
+		!obs_weak_source_expired(copyFiltersSource) && idx != -1);
+	ui->actionPasteRef->setEnabled(!!copySources.size());
+	ui->actionPasteDup->setEnabled(!!copySources.size());
+
+	ui->actionMoveUp->setEnabled(idx != -1);
+	ui->actionMoveDown->setEnabled(idx != -1);
+	ui->actionMoveToTop->setEnabled(idx != -1);
+	ui->actionMoveToBottom->setEnabled(idx != -1);
+
+	bool canTransform = false;
+	if (sceneItem)
+		canTransform = !obs_sceneitem_locked(sceneItem);
+
+	ui->actionResetTransform->setEnabled(canTransform);
+	ui->actionRotate90CW->setEnabled(canTransform);
+	ui->actionRotate90CCW->setEnabled(canTransform);
+	ui->actionRotate180->setEnabled(canTransform);
+	ui->actionFlipHorizontal->setEnabled(canTransform);
+	ui->actionFlipVertical->setEnabled(canTransform);
+	ui->actionFitToScreen->setEnabled(canTransform);
+	ui->actionStretchToScreen->setEnabled(canTransform);
+	ui->actionCenterToScreen->setEnabled(canTransform);
+	ui->actionVerticalCenter->setEnabled(canTransform);
+	ui->actionHorizontalCenter->setEnabled(canTransform);
+}
+
+void OBSBasic::on_menuBasic_MainMenu_Edit_aboutToShow()
+{
+	UpdateEditMenu();
 }
 
 void OBSBasic::on_actionEditTransform_triggered()
@@ -8771,7 +8809,7 @@ void OBSBasic::ToggleShowHide()
 void OBSBasic::SystemTrayInit()
 {
 #ifdef __APPLE__
-	QIcon trayIconFile = QIcon(":/res/images/obs_macos.png");
+	QIcon trayIconFile = QIcon(":/res/images/obs_macos.svg");
 	trayIconFile.setIsMask(true);
 #else
 	QIcon trayIconFile = QIcon(":/res/images/obs.png");
@@ -8914,7 +8952,7 @@ void OBSBasic::on_actionMainRedo_triggered()
 
 void OBSBasic::on_actionCopySource_triggered()
 {
-	copyStrings.clear();
+	copySources.clear();
 	bool allowPastingDuplicate = true;
 
 	for (auto &selectedSource : GetAllSelectedSourceItems()) {
@@ -8926,7 +8964,9 @@ void OBSBasic::on_actionCopySource_triggered()
 
 		OBSSource source = obs_sceneitem_get_source(item);
 
-		copyStrings.push_front(obs_source_get_name(source));
+		obs_weak_source *weak = obs_source_get_weak_source(source);
+		copySources.emplace_front(weak);
+		obs_weak_source_release(weak);
 
 		copyVisible = obs_sceneitem_visible(item);
 
@@ -8943,18 +8983,24 @@ void OBSBasic::on_actionPasteRef_triggered()
 {
 	OBSSource scene_source = GetCurrentSceneSource();
 	OBSData undo_data = BackupScene(scene_source);
+	OBSScene scene = GetCurrentScene();
 
 	undo_s.push_disabled();
 
-	for (auto &copyString : copyStrings) {
-		/* do not allow duplicate refs of the same group in the same scene */
-		OBSScene scene = GetCurrentScene();
-		if (!!obs_scene_get_group(scene, copyString))
+	for (auto &copySource : copySources) {
+		obs_source_t *source = obs_weak_source_get_source(copySource);
+		if (!source)
 			continue;
 
-		OBSBasicSourceSelect::SourcePaste(copyString, copyVisible,
-						  false);
+		const char *name = obs_source_get_name(source);
+
+		/* do not allow duplicate refs of the same group in the same scene */
+		if (!!obs_scene_get_group(scene, name))
+			continue;
+
+		OBSBasicSourceSelect::SourcePaste(name, copyVisible, false);
 		on_actionPasteTransform_triggered();
+		obs_source_release(source);
 	}
 
 	undo_s.pop_disabled();
@@ -8974,10 +9020,15 @@ void OBSBasic::on_actionPasteDup_triggered()
 
 	undo_s.push_disabled();
 
-	for (auto &copyString : copyStrings) {
-		OBSBasicSourceSelect::SourcePaste(copyString, copyVisible,
-						  true);
+	for (auto &copySource : copySources) {
+		obs_source_t *source = obs_weak_source_get_source(copySource);
+		if (!source)
+			continue;
+
+		const char *name = obs_source_get_name(source);
+		OBSBasicSourceSelect::SourcePaste(name, copyVisible, true);
 		on_actionPasteTransform_triggered();
+		obs_source_release(source);
 	}
 
 	undo_s.pop_disabled();
@@ -8996,7 +9047,8 @@ void OBSBasic::AudioMixerCopyFilters()
 	VolControl *vol = action->property("volControl").value<VolControl *>();
 	obs_source_t *source = vol->GetSource();
 
-	copyFiltersString = obs_source_get_name(source);
+	copyFiltersSource = obs_source_get_weak_source(source);
+	obs_weak_source_release(copyFiltersSource);
 }
 
 void OBSBasic::AudioMixerPasteFilters()
@@ -9005,7 +9057,7 @@ void OBSBasic::AudioMixerPasteFilters()
 	VolControl *vol = action->property("volControl").value<VolControl *>();
 	obs_source_t *dstSource = vol->GetSource();
 
-	OBSSource source = obs_get_source_by_name(copyFiltersString);
+	OBSSource source = obs_weak_source_get_source(copyFiltersSource);
 	obs_source_release(source);
 
 	if (source == dstSource)
@@ -9016,12 +9068,13 @@ void OBSBasic::AudioMixerPasteFilters()
 
 void OBSBasic::SceneCopyFilters()
 {
-	copyFiltersString = obs_source_get_name(GetCurrentSceneSource());
+	copyFiltersSource = obs_source_get_weak_source(GetCurrentSceneSource());
+	obs_weak_source_release(copyFiltersSource);
 }
 
 void OBSBasic::ScenePasteFilters()
 {
-	OBSSource source = obs_get_source_by_name(copyFiltersString);
+	OBSSource source = obs_weak_source_get_source(copyFiltersSource);
 	obs_source_release(source);
 
 	OBSSource dstSource = GetCurrentSceneSource();
@@ -9041,7 +9094,8 @@ void OBSBasic::on_actionCopyFilters_triggered()
 
 	OBSSource source = obs_sceneitem_get_source(item);
 
-	copyFiltersString = obs_source_get_name(source);
+	copyFiltersSource = obs_source_get_weak_source(source);
+	obs_weak_source_release(copyFiltersSource);
 
 	ui->actionPasteFilters->setEnabled(true);
 }
@@ -9086,7 +9140,7 @@ void OBSBasic::CreateFilterPasteUndoRedoAction(const QString &text,
 
 void OBSBasic::on_actionPasteFilters_triggered()
 {
-	OBSSource source = obs_get_source_by_name(copyFiltersString);
+	OBSSource source = obs_weak_source_get_source(copyFiltersSource);
 	obs_source_release(source);
 
 	OBSSceneItem sceneItem = GetCurrentSceneItem();
@@ -9459,7 +9513,7 @@ void OBSBasic::PauseRecording()
 		if (trayIcon && trayIcon->isVisible()) {
 #ifdef __APPLE__
 			QIcon trayIconFile =
-				QIcon(":/res/images/obs_paused_macos.png");
+				QIcon(":/res/images/obs_paused_macos.svg");
 			trayIconFile.setIsMask(true);
 #else
 			QIcon trayIconFile =
@@ -9499,7 +9553,7 @@ void OBSBasic::UnpauseRecording()
 		if (trayIcon && trayIcon->isVisible()) {
 #ifdef __APPLE__
 			QIcon trayIconFile =
-				QIcon(":/res/images/tray_active_macos.png");
+				QIcon(":/res/images/tray_active_macos.svg");
 			trayIconFile.setIsMask(true);
 #else
 			QIcon trayIconFile =

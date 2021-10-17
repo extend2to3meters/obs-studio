@@ -201,8 +201,8 @@ private:
 	bool projectChanged = false;
 	bool previewEnabled = true;
 
-	std::list<const char *> copyStrings;
-	const char *copyFiltersString = nullptr;
+	std::deque<OBSWeakSource> copySources;
+	OBSWeakSource copyFiltersSource;
 	bool copyVisible = true;
 
 	bool closing = false;
@@ -890,7 +890,7 @@ public:
 	QIcon GetGroupIcon() const;
 	QIcon GetSceneIcon() const;
 
-	OBSWeakSource copyFilter = nullptr;
+	OBSWeakSource copyFilter;
 
 	void ShowStatusBarMessage(const QString &message);
 
@@ -912,6 +912,8 @@ public:
 					     obs_source_t *source,
 					     obs_data_array_t *undo_array,
 					     obs_data_array_t *redo_array);
+
+	void UpdateEditMenu();
 
 protected:
 	virtual void closeEvent(QCloseEvent *event) override;
@@ -935,6 +937,8 @@ private slots:
 
 	void on_actionShowCrashLogs_triggered();
 	void on_actionUploadLastCrashLog_triggered();
+
+	void on_menuBasic_MainMenu_Edit_aboutToShow();
 
 	void on_actionEditTransform_triggered();
 	void on_actionCopyTransform_triggered();

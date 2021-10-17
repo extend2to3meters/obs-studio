@@ -79,10 +79,7 @@ OBSBasicProperties::OBSBasicProperties(QWidget *parent, OBSSource source_)
 	obs_data_release(oldSettings);
 
 	OBSData nd_settings = obs_source_get_settings(source);
-	OBSData settings = obs_data_get_defaults(nd_settings);
-	obs_data_apply(settings, nd_settings);
-	obs_data_apply(oldSettings, settings);
-	obs_data_release(settings);
+	obs_data_apply(oldSettings, nd_settings);
 	obs_data_release(nd_settings);
 
 	auto handle_memory = [](void *vp, obs_data_t *old_settings,
@@ -214,8 +211,6 @@ OBSBasicProperties::OBSBasicProperties(QWidget *parent, OBSSource source_)
 	} else {
 		preview->hide();
 	}
-
-	App()->DisableHotkeys();
 }
 
 OBSBasicProperties::~OBSBasicProperties()
@@ -226,7 +221,6 @@ OBSBasicProperties::~OBSBasicProperties()
 	obs_source_dec_showing(source);
 	main->SaveProject();
 	main->UpdateContextBar();
-	App()->UpdateHotkeyFocusSetting();
 }
 
 void OBSBasicProperties::AddPreviewButton()
