@@ -419,6 +419,8 @@ bool OBSApp::InitGlobalConfigDefaults()
 	config_set_default_bool(globalConfig, "General", "EnableAutoUpdates",
 				true);
 
+	config_set_default_bool(globalConfig, "General", "ConfirmOnExit", true);
+
 #if _WIN32
 	config_set_default_string(globalConfig, "Video", "Renderer",
 				  "Direct3D 11");
@@ -1454,6 +1456,8 @@ bool OBSApp::OBSInit()
 	     browserHWAccel ? "true" : "false");
 #endif
 
+	blog(LOG_INFO, "Qt Version: %s (runtime), %s (compiled)", qVersion(),
+	     QT_VERSION_STR);
 	blog(LOG_INFO, "Portable mode: %s", portable_mode ? "true" : "false");
 
 	setQuitOnLastWindowClosed(false);
