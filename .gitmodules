@@ -18,4 +18,4 @@
 	url = https://github.com/Mixer/ftl-sdk.git
 [submodule "UI/frontend-plugins/obsplay"]
 	path = UI/frontend-plugins/obsplay
-	url = git@github.com:extend2to3meters/obsplay.git
+	url = https://github.com/lolepop/obsplay.git
