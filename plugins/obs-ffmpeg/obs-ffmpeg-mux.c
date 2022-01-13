@@ -846,6 +846,7 @@ static void *replay_buffer_mux_thread(void *data)
 	}
 
 	info("Wrote replay buffer to '%s'", stream->path.array);
+	replay_buffer_clear(stream);
 
 error:
 	os_process_pipe_destroy(stream->pipe);
