@@ -8,10 +8,7 @@
 #include "../libdshowcapture/source/output-filter.hpp"
 #include "../libdshowcapture/source/dshow-formats.hpp"
 #include "../../../libobs/util/windows/WinHandle.hpp"
-
-#define DEFAULT_CX 1920
-#define DEFAULT_CY 1080
-#define DEFAULT_INTERVAL 333333ULL
+#include "../../../libobs/util/threading-windows.h"
 
 typedef struct {
 	int cx;
@@ -29,12 +26,15 @@ class VCamFilter : public DShow::OutputFilter {
 	bool in_obs = false;
 	enum queue_state prev_state = SHARED_QUEUE_STATE_INVALID;
 	placeholder_t placeholder;
-	uint32_t cx = DEFAULT_CX;
-	uint32_t cy = DEFAULT_CY;
+	uint32_t obs_cx = 0;
+	uint32_t obs_cy = 0;
+	uint64_t obs_interval = 0;
+	uint32_t filter_cx = 0;
+	uint32_t filter_cy = 0;
 	DShow::VideoFormat format;
-	uint64_t interval = DEFAULT_INTERVAL;
 	WinHandle thread_start;
 	WinHandle thread_stop;
+	volatile bool active = false;
 
 	nv12_scale_t scaler = {};
 
@@ -60,4 +60,6 @@ public:
 	~VCamFilter() override;
 
 	STDMETHODIMP Pause() override;
+	STDMETHODIMP Run(REFERENCE_TIME tStart) override;
+	STDMETHODIMP Stop() override;
 };

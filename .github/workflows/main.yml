@@ -1,24 +1,26 @@
-name: 'CI Multiplatform Build'
+name: 'BUILD'
 
 on:
   push:
-    paths-ignore:
-      - '**.md'
+    paths-ignore: ['**.md']
     branches:
       - master
       - 'release/**'
-    tags:
-      - '*'
+    tags: ['*']
   pull_request:
-    paths-ignore:
-      - '**.md'
-    branches:
-      - master
+    paths-ignore: ['**.md']
+    branches: [master]
+  merge_group:
+    branches: [master]
 
 env:
-  MACOS_CEF_BUILD_VERSION: '4638'
-  LINUX_CEF_BUILD_VERSION: '4638'
-  WINDOWS_CEF_BUILD_VERSION: '4638'
+  CACHE_REVISION: '006'
+  CEF_BUILD_VERSION_LINUX: '5060'
+  CEF_BUILD_VERSION_WIN: '5060'
+  QT_VERSION_MAC: '6.4.3'
+  QT_VERSION_WIN: '6.4.3'
+  DEPS_VERSION_WIN: '2023-04-12'
+  VLC_VERSION_WIN: '3.0.0-git'
   TWITCH_CLIENTID: ${{ secrets.TWITCH_CLIENT_ID }}
   TWITCH_HASH: ${{ secrets.TWITCH_HASH }}
   RESTREAM_CLIENTID: ${{ secrets.RESTREAM_CLIENTID }}
@@ -28,216 +30,210 @@ env:
   YOUTUBE_SECRET: ${{ secrets.YOUTUBE_SECRET }}
   YOUTUBE_SECRET_HASH: ${{ secrets.YOUTUBE_SECRET_HASH }}
 
+concurrency:
+  group: '${{ github.workflow }} @ ${{ github.event.pull_request.head.label || github.head_ref || github.ref }}'
+  cancel-in-progress: true
+
 jobs:
-  ubuntu64:
-    name: 'Linux/Ubuntu 64-bit'
-    runs-on: [ubuntu-18.04]
+  clang_check:
+    name: '01 - Code Format Check'
+    runs-on: [ubuntu-22.04]
     steps:
       - name: 'Checkout'
-        uses: actions/checkout@v2.3.3
+        uses: actions/checkout@v3
         with:
           submodules: 'recursive'
-      - name: 'Fetch Git Tags'
+
+      - name: 'Install clang-format'
+        run: sudo apt-get install -y clang-format-13
+
+      - name: 'Run clang-format'
         run: |
-          git fetch --prune --unshallow
-          echo "OBS_GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_ENV
-          echo "OBS_GIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          echo "OBS_GIT_TAG=$(git describe --tags --abbrev=0)" >> $GITHUB_ENV
-      - name: 'Check for Github Labels'
-        if: github.event_name == 'pull_request'
+          ./CI/check-format.sh
+          ./CI/check-changes.sh
+
+      - name: 'Install cmake-format'
+        run: sudo pip install cmakelang
+
+      - name: 'Run cmake-format'
         run: |
-          LABELS_URL="$(echo ${{ github.event.pull_request.url }} | sed s'/pulls/issues/')"
-          LABEL_FOUND="$(curl -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "${LABELS_URL}/labels" | sed -n 's/.*"name": "\(.*\)",/\1/p' | grep 'Seeking Testers' || true)"
-          if [ "${LABEL_FOUND}" = "Seeking Testers" ]; then
-            echo "SEEKING_TESTERS=1" >> $GITHUB_ENV
+          ./CI/check-cmake.sh
+
+  config:
+    name: '01 - Configure Build Jobs'
+    runs-on: [ubuntu-22.04]
+    outputs:
+      create_artifacts: ${{ steps.config.outputs.create_artifacts }}
+      cache_date: ${{ steps.config.outputs.cache_date }}
+    steps:
+      - name: 'Configure Build Jobs'
+        id: config
+        run: |
+          if [[ "${{ github.event_name == 'pull_request' }}" == "true" ]]; then
+            if test -n "$(curl -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -s "${{ github.event.pull_request.url }}" | jq -e '.labels[] | select(.name == "Seeking Testers")')"; then
+              echo 'create_artifacts=true' >> $GITHUB_OUTPUT
+            else
+              echo 'create_artifacts=false' >> $GITHUB_OUTPUT
+            fi
           else
-            echo "SEEKING_TESTERS=0" >> $GITHUB_ENV
+            echo 'create_artifacts=true' >> $GITHUB_OUTPUT
           fi
-      - name: Install prerequisites (Apt)
+          echo "cache_date=$(date +"%Y-%m-%d")" >> $GITHUB_OUTPUT
+
+  linux_build:
+    name: '02 - Linux'
+    runs-on: ${{ matrix.ubuntu }}
+    strategy:
+      matrix:
+        ubuntu: ['ubuntu-20.04', 'ubuntu-22.04']
+        include:
+          - ubuntu: 'ubuntu-20.04'
+            script_options: '--disable-pipewire'
+    if: always()
+    needs: [config, clang_check]
+    defaults:
+      run:
         shell: bash
-        run: |
-          echo "NPROC=$(($(nproc)+1))" >> $GITHUB_ENV
-          sudo dpkg --add-architecture amd64
-          sudo apt-get -qq update
-          sudo apt-get install -y \
-           build-essential \
-           checkinstall \
-           cmake \
-           libasound2-dev \
-           libavcodec-dev \
-           libavdevice-dev \
-           libavfilter-dev \
-           libavformat-dev \
-           libavutil-dev \
-           libcurl4-openssl-dev \
-           libfdk-aac-dev \
-           libfontconfig-dev \
-           libfreetype6-dev \
-           libgl1-mesa-dev \
-           libjack-jackd2-dev \
-           libjansson-dev \
-           libluajit-5.1-dev \
-           libpulse-dev \
-           libqt5x11extras5-dev \
-           libsndio-dev \
-           libspeexdsp-dev \
-           libswresample-dev \
-           libswscale-dev \
-           libudev-dev \
-           libv4l-dev \
-           libva-dev \
-           libvlc-dev \
-           libx11-dev \
-           libx264-dev \
-           libxcb-randr0-dev \
-           libxcb-shm0-dev \
-           libxcb-xinerama0-dev \
-           libxcomposite-dev \
-           libxinerama-dev \
-           libmbedtls-dev \
-           pkg-config \
-           python3-dev \
-           qtbase5-dev \
-           qtbase5-private-dev \
-           libqt5svg5-dev \
-           swig \
-           libcmocka-dev \
-           ninja-build \
-           libpci-dev
-      - name: 'Configure'
-        shell: bash
-        run: |
-          mkdir ./build
-          cd ./build
-          cmake -G "Ninja" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DENABLE_PIPEWIRE=OFF -DBUILD_BROWSER=OFF -DUNIX_STRUCTURE=1 -DDISABLE_PLUGINS=ON  ..
-      - name: 'Build'
-        shell: bash
-        working-directory: ${{ github.workspace }}/build
-        run: ninja
-      - name: 'Package'
-        if: success() && (github.event_name != 'pull_request' || env.SEEKING_TESTERS == '1')
-        shell: bash
-        run: |
-          FILE_DATE=$(date +%Y-%m-%d)
-          FILE_NAME=$FILE_DATE-${{ env.OBS_GIT_HASH }}-${{ env.OBS_GIT_TAG }}-linux64.tar.gz
-          echo "FILE_NAME=${FILE_NAME}" >> $GITHUB_ENV
-      - name: 'Publish'
-        if: success() && (github.event_name != 'pull_request' || env.SEEKING_TESTERS == '1')
-        uses: actions/upload-artifact@v2.2.0
-        with:
-          name: '${{ env.FILE_NAME }}'
-          path: |
-            build/rundir/RelWithDebInfo/**/obsplay.so
-            build/rundir/RelWithDebInfo/data/obs-plugins/obsplay
-  win64:
-    name: 'Windows 64-bit'
-    runs-on: [windows-latest]
+        working-directory: 'obs-studio'
     env:
-      QT_VERSION: '5.15.2'
-      CMAKE_GENERATOR: "Visual Studio 16 2019"
-      CMAKE_SYSTEM_VERSION: "10.0.18363.657"
-      WINDOWS_DEPS_VERSION: '2022-01-01'
-      WINDOWS_DEPS_CACHE_VERSION: '1'
-      VLC_VERSION: '3.0.0-git'
-      VIRTUALCAM-GUID: "A3FCE0F5-3493-419F-958A-ABA1250EC20B"
+      BUILD_FOR_DISTRIBUTION: ${{ startsWith(github.ref, 'refs/tags/') && github.event_name != 'pull_request' }}
     steps:
-      - name: 'Add msbuild to PATH'
-        uses: microsoft/setup-msbuild@v1.0.2
       - name: 'Checkout'
-        uses: actions/checkout@v2.3.3
+        uses: actions/checkout@v3
         with:
           submodules: 'recursive'
-      - name: 'Fetch Git Tags'
-        shell: bash
-        run: |
-          git fetch --prune --unshallow
-          echo "OBS_GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_ENV
-          echo "OBS_GIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          echo "OBS_GIT_TAG=$(git describe --tags --abbrev=0)" >> $GITHUB_ENV
-      - name: 'Check for Github Labels'
-        if: github.event_name == 'pull_request'
-        shell: bash
-        run: |
-          LABELS_URL="$(echo ${{ github.event.pull_request.url }} | sed s'/pulls/issues/')"
-          LABEL_FOUND="$(curl -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "${LABELS_URL}/labels" | sed -n 's/.*"name": "\(.*\)",/\1/p' | grep 'Seeking Testers' || true)"
-          if [ "${LABEL_FOUND}" = "Seeking Testers" ]; then
-            echo "SEEKING_TESTERS=1" >> $GITHUB_ENV
-          else
-            echo "SEEKING_TESTERS=0" >> $GITHUB_ENV
-          fi
-      - name: 'Restore QT dependency from cache'
-        id: qt-cache
-        uses: actions/cache@v2.1.2
+          path: 'obs-studio'
+          fetch-depth: 0
+
+      - name: 'Restore ccache from cache'
+        id: ccache-cache
+        uses: actions/cache@v3
         env:
-          CACHE_NAME: 'windows-qt-cache'
+          CACHE_NAME: 'ccache-cache'
         with:
-          path: ${{ github.workspace }}/cmbuild/QT
-          key: ${{ runner.os }}-pr-${{ env.CACHE_NAME }}-${{ env.QT_VERSION }}
-      - name: 'Restore pre-built dependencies from cache'
-        id: deps-cache
-        uses: actions/cache@v2.1.2
+          path: ${{ github.workspace }}/.ccache
+          key: ${{ runner.os }}-ccache-${{ matrix.ubuntu }}-${{ github.event_name }}-${{ github.head_ref }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ matrix.ubuntu }}-push-
+
+      - name: 'Restore Chromium Embedded Framework from cache'
+        id: cef-cache
+        uses: actions/cache@v3
         env:
-          CACHE_NAME: 'windows-deps-cache'
+          CACHE_NAME: 'cef-cache'
         with:
-          path: ${{ github.workspace }}/cmbuild/deps
-          key: ${{ runner.os }}-pr-${{ env.CACHE_NAME }}-${{ env.WINDOWS_DEPS_VERSION }}-${{ env.WINDOWS_DEPS_CACHE_VERSION }}
+          path: ${{ github.workspace }}/obs-build-dependencies/cef_binary_${{ env.CEF_BUILD_VERSION_LINUX }}_linux64
+          key: ${{ runner.os }}-pr-${{ env.CACHE_NAME }}-${{ env.CEF_BUILD_VERSION_LINUX }}-${{ env.CACHE_REVISION }}
+
+      - name: 'Setup build environment'
+        id: setup
+        run: |
+          echo "commitHash=$(git rev-parse --short=9 HEAD)" >> $GITHUB_OUTPUT
+
+      - name: 'Install dependencies'
+        env:
+          RESTORED_CEF: ${{ steps.cef-cache.outputs.cache-hit }}
+        run: CI/linux/01_install_dependencies.sh ${{ matrix.script_options }}
+
+      - name: 'Build OBS'
+        run: CI/linux/02_build_obs.sh ${{ matrix.script_options }}
+
+      - name: 'Run tests'
+        if: success()
+        run: cmake --build build -t test
+
+      - name: 'Create build artifact'
+        if: ${{ success() && fromJSON(needs.config.outputs.create_artifacts) }}
+        run: |
+          CI/linux/03_package_obs.sh
+          ARTIFACT_NAME=$(basename $(/usr/bin/find build  -maxdepth 1 -type f -name "obs-studio-*.deb" | sort -rn | head -1))
+          echo "FILE_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
+          echo "DEBUG_FILE_NAME=${ARTIFACT_NAME//.deb/-dbgsym.ddeb}" >> $GITHUB_ENV
+
+      - name: 'Upload build Artifact'
+        if: ${{ success() && fromJSON(needs.config.outputs.create_artifacts) }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: 'obs-studio-${{ matrix.ubuntu }}-${{ steps.setup.outputs.commitHash }}'
+          path: '${{ github.workspace }}/obs-studio/build/${{ env.FILE_NAME }}'
+
+      - name: 'Upload debug symbol Artifact'
+        if: ${{ success() && fromJSON(needs.config.outputs.create_artifacts) }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: 'obs-studio-${{ matrix.ubuntu }}-${{ steps.setup.outputs.commitHash }}-dbgsym'
+          path: '${{ github.workspace }}/obs-studio/build/${{ env.DEBUG_FILE_NAME }}'
+
+  windows_build:
+    name: '02 - Windows'
+    runs-on: [windows-2022]
+    needs: [config, clang_check]
+    if: always()
+    strategy:
+      matrix:
+        arch: [x64, x86]
+    env:
+      CMAKE_GENERATOR: 'Visual Studio 17 2022'
+      CMAKE_SYSTEM_VERSION: '10.0.18363.657'
+      VIRTUALCAM-GUID: 'A3FCE0F5-3493-419F-958A-ABA1250EC20B'
+      BUILD_FOR_DISTRIBUTION: ${{ startsWith(github.ref, 'refs/tags/') && github.event_name != 'pull_request' }}
+    defaults:
+      run:
+        working-directory: 'obs-studio'
+    steps:
+      - name: 'Checkout'
+        uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
+          path: 'obs-studio'
+          fetch-depth: 0
+
+      - name: 'Add msbuild to PATH'
+        uses: microsoft/setup-msbuild@v1.1
+
       - name: 'Restore VLC dependency from cache'
         id: vlc-cache
-        uses: actions/cache@v2.1.2
+        uses: actions/cache@v3
         env:
-          CACHE_NAME: 'windows-vlc-cache'
+          CACHE_NAME: 'vlc-cache'
         with:
-          path: ${{ github.workspace }}/cmbuild/vlc
-          key: ${{ runner.os }}-pr-${{ env.CACHE_NAME }}-${{ env.VLC_VERSION }}
-      - name: 'Restore CEF dependency from cache (64 bit)'
+          path: ${{ github.workspace }}/obs-build-dependencies/vlc-${{ env.VLC_VERSION_WIN }}
+          key: ${{ runner.os }}-pr-${{ env.CACHE_NAME }}-${{ env.VLC_VERSION_WIN }}-${{ env.CACHE_REVISION }}
+
+      - name: 'Restore Chromium Embedded Framework from cache'
         id: cef-cache
-        uses: actions/cache@v2.1.2
+        uses: actions/cache@v3
         env:
-          CACHE_NAME: 'windows-cef-64-cache'
+          CACHE_NAME: 'cef-cache'
         with:
-          path: ${{ github.workspace }}/cmbuild/cef_binary_${{ env.WINDOWS_CEF_BUILD_VERSION }}_windows_x64
-          key: ${{ runner.os }}-pr-${{ env.CACHE_NAME }}-${{ env.WINDOWS_CEF_BUILD_VERSION }}
-      - name: 'Install prerequisite: QT'
-        if: steps.qt-cache.outputs.cache-hit != 'true'
+          path: ${{ github.workspace }}/obs-build-dependencies/cef_binary_${{ env.CEF_BUILD_VERSION_WIN }}_windows_${{ matrix.arch }}
+          key: ${{ runner.os }}-pr-${{ env.CACHE_NAME }}-${{ env.CEF_BUILD_VERSION_WIN }}-${{ matrix.arch }}-${{ env.CACHE_REVISION }}
+
+      - name: Setup Environment
+        id: setup
         run: |
-          curl -kLO https://cdn-fastly.obsproject.com/downloads/Qt_${{ env.QT_VERSION }}.7z -f --retry 5 -C -
-          7z x Qt_${{ env.QT_VERSION }}.7z -o"${{ github.workspace }}/cmbuild/QT"
-      - name: 'Install prerequisite: Pre-built dependencies'
-        if: steps.deps-cache.outputs.cache-hit != 'true'
+          $CommitHash = git rev-parse --short=9 HEAD
+          "commitHash=${CommitHash}" >> $env:GITHUB_OUTPUT
+
+      - name: 'Install dependencies'
+        env:
+          RESTORED_VLC: ${{ steps.vlc-cache.outputs.cache-hit }}
+          RESTORED_CEF: ${{ steps.cef-cache.outputs.cache-hit }}
+        run: CI/windows/01_install_dependencies.ps1 -BuildArch ${{ matrix.arch }}
+
+      - name: 'Build OBS'
+        run: CI/windows/02_build_obs.ps1 -BuildArch ${{ matrix.arch }}
+
+      - name: 'Create build artifact'
+        if: ${{ success() && fromJSON(needs.config.outputs.create_artifacts) }}
         run: |
-          curl -L -O https://github.com/obsproject/obs-deps/releases/download/win-${{ env.WINDOWS_DEPS_VERSION }}/windows-deps-${{ env.WINDOWS_DEPS_VERSION }}.zip --retry 5 -C -
-          7z x windows-deps-${{ env.WINDOWS_DEPS_VERSION }}.zip -o"${{ github.workspace }}/cmbuild/deps"
-      - name: 'Install prerequisite: VLC'
-        if: steps.vlc-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -kL https://cdn-fastly.obsproject.com/downloads/vlc.zip -f --retry 5 -o vlc.zip
-          7z x vlc.zip -o"${{ github.workspace }}/cmbuild/vlc"
-      - name: 'Install prerequisite: Chromium Embedded Framework'
-        if: steps.cef-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -kL https://cdn-fastly.obsproject.com/downloads/cef_binary_${{ env.WINDOWS_CEF_BUILD_VERSION }}_windows_x64.zip -f --retry 5 -o cef.zip
-          7z x cef.zip -o"${{ github.workspace }}/cmbuild"
-      - name: 'Configure'
-        run: |
-          mkdir ./build
-          mkdir ./build64
-          cd ./build64
-          cmake -G"${{ env.CMAKE_GENERATOR }}" -A"x64" -DDISABLE_PLUGINS=ON -DCMAKE_SYSTEM_VERSION="${{ env.CMAKE_SYSTEM_VERSION }}" -DBUILD_BROWSER=true -DCOMPILE_D3D12_HOOK=true -DVLCPath="${{ github.workspace }}/cmbuild/vlc" -DDepsPath="${{ github.workspace }}/cmbuild/deps/win64" -DQTDIR="${{ github.workspace }}/cmbuild/QT/${{ env.QT_VERSION }}/msvc2019_64" -DENABLE_VLC=ON -DCEF_ROOT_DIR="${{ github.workspace }}/cmbuild/cef_binary_${{ env.CEF_VERSION }}_windows64_minimal" -DTWITCH_CLIENTID='${{ env.TWITCH_CLIENTID }}' -DTWITCH_HASH='${{ env.TWITCH_HASH }}' -DRESTREAM_CLIENTID='${{ env.RESTREAM_CLIENTID }}' -DRESTREAM_HASH='${{ env.RESTREAM_HASH }}' -DCOPIED_DEPENDENCIES=FALSE -DCOPY_DEPENDENCIES=TRUE -DVIRTUALCAM_GUID=${{ env.VIRTUALCAM-GUID }} ..
-      - name: 'Build'
-        run: msbuild /m /p:Configuration=RelWithDebInfo .\build64\obs-studio.sln
-      - name: 'Package'
-        if: success() && (github.event_name != 'pull_request' || env.SEEKING_TESTERS == '1')
-        run: |
-          $env:FILE_DATE=(Get-Date -UFormat "%F")
-          $env:FILE_NAME="${env:FILE_DATE}-${{ env.OBS_GIT_HASH }}-${{ env.OBS_GIT_TAG }}-win64"
-          echo "FILE_NAME=${env:FILE_NAME}" >> ${env:GITHUB_ENV}
-          robocopy .\build64\rundir\RelWithDebInfo .\build\ /E /XF .gitignore
-          7z
-      - name: 'Publish'
-        if: success() && (github.event_name != 'pull_request' || env.SEEKING_TESTERS == '1')
-        uses: actions/upload-artifact@v2.2.0
+          CI/windows/03_package_obs.ps1 -BuildArch ${{ matrix.arch }} -Package
+          $ArtifactName = Get-ChildItem -filter "obs-studio-*-windows-${{ matrix.arch }}.zip" -File
+          Write-Output "FILE_NAME=${ArtifactName}" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: 'Upload build artifact'
+        if: ${{ success() && fromJSON(needs.config.outputs.create_artifacts) }}
+        uses: actions/upload-artifact@v3
         with:
-          name: '${{ env.FILE_NAME }}'
-          path: |
-            build/**/obsplay.*
-            build/data/obs-plugins/obsplay
+          name: 'obs-studio-windows-${{ matrix.arch }}-${{ steps.setup.outputs.commitHash }}'
+          path: '${{ env.FILE_NAME }}'

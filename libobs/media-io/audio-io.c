@@ -59,6 +59,7 @@ static inline void audio_input_free(struct audio_input *input)
 struct audio_mix {
 	DARRAY(struct audio_input) inputs;
 	float buffer[MAX_AUDIO_CHANNELS][AUDIO_OUTPUT_FRAMES];
+	float buffer_unclamped[MAX_AUDIO_CHANNELS][AUDIO_OUTPUT_FRAMES];
 };
 
 struct audio_output {
@@ -116,8 +117,12 @@ static inline void do_audio_output(struct audio_output *audio, size_t mix_idx,
 	for (size_t i = mix->inputs.num; i > 0; i--) {
 		struct audio_input *input = mix->inputs.array + (i - 1);
 
+		float(*buf)[AUDIO_OUTPUT_FRAMES] =
+			input->conversion.allow_clipping ? mix->buffer_unclamped
+							 : mix->buffer;
 		for (size_t i = 0; i < audio->planes; i++)
-			data.data[i] = (uint8_t *)mix->buffer[i];
+			data.data[i] = (uint8_t *)buf[i];
+
 		data.frames = frames;
 		data.timestamp = timestamp;
 
@@ -142,9 +147,12 @@ static inline void clamp_audio_output(struct audio_output *audio, size_t bytes)
 		for (size_t plane = 0; plane < audio->planes; plane++) {
 			float *mix_data = mix->buffer[plane];
 			float *mix_end = &mix_data[float_size];
+			/* Unclamped mix is copied directly. */
+			memcpy(mix->buffer_unclamped[plane], mix_data, bytes);
 
 			while (mix_data < mix_end) {
 				float val = *mix_data;
+				val = (val == val) ? val : 0.0f;
 				val = (val > 1.0f) ? 1.0f : val;
 				val = (val < -1.0f) ? -1.0f : val;
 				*(mix_data++) = val;
@@ -213,10 +221,6 @@ static void *audio_thread(void *param)
 	uint64_t samples = 0;
 	uint64_t start_time = os_gettime_ns();
 	uint64_t prev_time = start_time;
-	uint64_t audio_time = prev_time;
-	uint32_t audio_wait_time =
-		(uint32_t)(audio_frames_to_ns(rate, AUDIO_OUTPUT_FRAMES) /
-			   1000000);
 
 	os_set_thread_name("audio-io: audio thread");
 
@@ -225,21 +229,16 @@ static void *audio_thread(void *param)
 				   "audio_thread(%s)", audio->info.name);
 
 	while (os_event_try(audio->stop_event) == EAGAIN) {
-		uint64_t cur_time;
+		samples += AUDIO_OUTPUT_FRAMES;
+		uint64_t audio_time =
+			start_time + audio_frames_to_ns(rate, samples);
 
-		os_sleep_ms(audio_wait_time);
+		os_sleepto_ns_fast(audio_time);
 
 		profile_start(audio_thread_name);
 
-		cur_time = os_gettime_ns();
-		while (audio_time <= cur_time) {
-			samples += AUDIO_OUTPUT_FRAMES;
-			audio_time =
-				start_time + audio_frames_to_ns(rate, samples);
-
-			input_and_output(audio, audio_time, prev_time);
-			prev_time = audio_time;
-		}
+		input_and_output(audio, audio_time, prev_time);
+		prev_time = audio_time;
 
 		profile_end(audio_thread_name);
 

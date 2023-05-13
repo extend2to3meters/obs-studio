@@ -103,7 +103,7 @@
 	if (_queue == NULL) {
 		// Allocate a one-second long queue, which we can use our FPS constant for.
 		OSStatus err = CMSimpleQueueCreate(kCFAllocatorDefault,
-						   self.fps, &_queue);
+						   (int32_t)self.fps, &_queue);
 		if (err != noErr) {
 			DLog(@"Err %d in CMSimpleQueueCreate", err);
 		}
@@ -131,9 +131,9 @@
 	if (NSEqualSizes(_testCardSize, NSZeroSize)) {
 		NSUserDefaults *defaults =
 			[NSUserDefaults standardUserDefaults];
-		int width = [[defaults objectForKey:kTestCardWidthKey]
+		NSInteger width = [[defaults objectForKey:kTestCardWidthKey]
 			integerValue];
-		int height = [[defaults objectForKey:kTestCardHeightKey]
+		NSInteger height = [[defaults objectForKey:kTestCardHeightKey]
 			integerValue];
 		if (width == 0 || height == 0) {
 			_testCardSize =
@@ -183,8 +183,10 @@
 
 		NSBitmapImageRep *rep = [[NSBitmapImageRep alloc]
 			initWithBitmapDataPlanes:NULL
-				      pixelsWide:self.testCardSize.width
-				      pixelsHigh:self.testCardSize.height
+				      pixelsWide:(NSInteger)
+							 self.testCardSize.width
+				      pixelsHigh:(NSInteger)self.testCardSize
+							 .height
 				   bitsPerSample:8
 				 samplesPerPixel:4
 					hasAlpha:YES
@@ -194,18 +196,18 @@
 				    bitsPerPixel:0];
 		rep.size = self.testCardSize;
 
-		float hScale =
+		double hScale =
 			placeholderImage.size.width / self.testCardSize.width;
-		float vScale =
+		double vScale =
 			placeholderImage.size.height / self.testCardSize.height;
 
-		float scaling = fmax(hScale, vScale);
+		double scaling = fmax(hScale, vScale);
 
-		float newWidth = placeholderImage.size.width / scaling;
-		float newHeight = placeholderImage.size.height / scaling;
+		double newWidth = placeholderImage.size.width / scaling;
+		double newHeight = placeholderImage.size.height / scaling;
 
-		float leftOffset = (self.testCardSize.width - newWidth) / 2;
-		float topOffset = (self.testCardSize.height - newHeight) / 2;
+		double leftOffset = (self.testCardSize.width - newWidth) / 2;
+		double topOffset = (self.testCardSize.height - newHeight) / 2;
 
 		[NSGraphicsContext saveGraphicsState];
 		[NSGraphicsContext
@@ -249,8 +251,8 @@
 
 - (CVPixelBufferRef)createPixelBufferWithTestAnimation
 {
-	int width = self.testCardSize.width;
-	int height = self.testCardSize.height;
+	int width = (int)self.testCardSize.width;
+	int height = (int)self.testCardSize.height;
 
 	NSDictionary *options = [NSDictionary
 		dictionaryWithObjectsAndKeys:
@@ -314,9 +316,9 @@
 	CVPixelBufferRef pixelBuffer =
 		[self createPixelBufferWithTestAnimation];
 
-	uint64_t hostTime = mach_absolute_time();
+	uint64_t hostTime = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
 	CMSampleTimingInfo timingInfo =
-		CMSampleTimingInfoForTimestamp(hostTime, self.fps, 1);
+		CMSampleTimingInfoForTimestamp(hostTime, (uint32_t)self.fps, 1);
 
 	OSStatus err = CMIOStreamClockPostTimingEvent(
 		timingInfo.presentationTimeStamp, hostTime, true, self.clock);
@@ -349,11 +351,10 @@
 	}
 }
 
-- (void)queueFrameWithSize:(NSSize)size
-		 timestamp:(uint64_t)timestamp
-	      fpsNumerator:(uint32_t)fpsNumerator
-	    fpsDenominator:(uint32_t)fpsDenominator
-		 frameData:(NSData *)frameData
+- (void)queuePixelBuffer:(CVPixelBufferRef)frame
+	       timestamp:(uint64_t)timestamp
+	    fpsNumerator:(uint32_t)fpsNumerator
+	  fpsDenominator:(uint32_t)fpsDenominator
 {
 	if (CMSimpleQueueGetFullness(self.queue) >= 1.0) {
 		DLog(@"Queue is full, bailing out");
@@ -364,9 +365,9 @@
 	CMSampleTimingInfo timingInfo = CMSampleTimingInfoForTimestamp(
 		timestamp, fpsNumerator, fpsDenominator);
 
-	err = CMIOStreamClockPostTimingEvent(timingInfo.presentationTimeStamp,
-					     mach_absolute_time(), true,
-					     self.clock);
+	err = CMIOStreamClockPostTimingEvent(
+		timingInfo.presentationTimeStamp,
+		clock_gettime_nsec_np(CLOCK_UPTIME_RAW), true, self.clock);
 	if (err != noErr) {
 		DLog(@"CMIOStreamClockPostTimingEvent err %d", err);
 	}
@@ -374,9 +375,37 @@
 	self.sequenceNumber = CMIOGetNextSequenceNumber(self.sequenceNumber);
 
 	CMSampleBufferRef sampleBuffer;
-	CMSampleBufferCreateFromData(size, timingInfo, self.sequenceNumber,
-				     frameData, &sampleBuffer);
-	CMSimpleQueueEnqueue(self.queue, sampleBuffer);
+
+	// Generate the video format description from that pixel buffer
+	CMVideoFormatDescriptionRef format;
+	err = CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault,
+							   frame, &format);
+	if (err != noErr) {
+		DLog(@"CMVideoFormatDescriptionCreateForImageBuffer err %d",
+		     err);
+		return;
+	}
+
+	err = CMIOSampleBufferCreateForImageBuffer(
+		kCFAllocatorDefault, frame, format, &timingInfo,
+		self.sequenceNumber, kCMIOSampleBufferNoDiscontinuities,
+		&sampleBuffer);
+
+	CFRelease(format);
+
+	if (err != noErr) {
+		DLog(@"CMIOSampleBufferCreateForImageBuffer err %d", err);
+		return;
+	}
+
+	err = CMSimpleQueueEnqueue(self.queue, sampleBuffer);
+
+	if (err != noErr) {
+		CFRelease(sampleBuffer);
+
+		DLog(@"CMSimpleQueueEnqueue err %d", err);
+		return;
+	}
 
 	// Inform the clients that the queue has been altered
 	if (self.alteredProc != NULL) {
@@ -389,9 +418,10 @@
 {
 	CMVideoFormatDescriptionRef formatDescription;
 	OSStatus err = CMVideoFormatDescriptionCreate(
-		kCFAllocatorDefault, kCMVideoCodecType_422YpCbCr8,
-		self.testCardSize.width, self.testCardSize.height, NULL,
-		&formatDescription);
+		kCFAllocatorDefault,
+		kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+		(int32_t)self.testCardSize.width,
+		(int32_t)self.testCardSize.height, NULL, &formatDescription);
 	if (err != noErr) {
 		DLog(@"Error %d from CMVideoFormatDescriptionCreate", err);
 	}
@@ -551,7 +581,14 @@
 
 - (BOOL)isPropertySettableWithAddress:(CMIOObjectPropertyAddress)address
 {
-	return false;
+	switch (address.mSelector) {
+	case kCMIOStreamPropertyFormatDescription:
+	case kCMIOStreamPropertyFrameRate:
+		// Suppress error logs complaining about the application not being able to set the desired format or frame rate.
+		return true;
+	default:
+		return false;
+	}
 }
 
 - (void)setPropertyDataWithAddress:(CMIOObjectPropertyAddress)address

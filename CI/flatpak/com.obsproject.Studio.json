@@ -1,7 +1,7 @@
 {
   "app-id": "com.obsproject.Studio",
   "runtime": "org.kde.Platform",
-  "runtime-version": "5.15-21.08",
+  "runtime-version": "6.4",
   "sdk": "org.kde.Sdk",
   "command": "obs",
   "finish-args": [
@@ -16,9 +16,10 @@
     "--talk-name=org.kde.StatusNotifierWatcher",
     "--talk-name=org.freedesktop.Flatpak",
     "--talk-name=org.freedesktop.Notifications",
+    "--talk-name=org.a11y.Bus",
     "--own-name=org.kde.StatusNotifierItem-2-2",
     "--system-talk-name=org.freedesktop.Avahi",
-    "--env=VST_PATH=/app/extensions/Plugins/lxvst"
+    "--env=VST_PATH=/app/extensions/Plugins/vst"
   ],
   "add-extensions": {
     "com.obsproject.Studio.Plugin": {
@@ -31,15 +32,14 @@
     },
     "org.freedesktop.LinuxAudio.Plugins": {
       "directory": "extensions/Plugins",
-      "version": "21.08",
+      "version": "22.08",
       "add-ld-path": "lib",
-      "merge-dirs": "lxvst",
+      "merge-dirs": "vst",
       "subdirectories": true,
       "no-autodownload": true
     }
   },
   "cleanup": [
-    "/lib/pkgconfig",
     "/share/man",
     "*.la"
   ],
@@ -51,13 +51,14 @@
         "--enable-shared"
       ],
       "cleanup": [
-        "/include"
+        "/include",
+        "/lib/pkgconfig"
       ],
       "sources": [
         {
           "type": "git",
           "url": "https://code.videolan.org/videolan/x264.git",
-          "commit": "66a5bc1bd1563d8227d5d18440b525a09bcf17ca"
+          "commit": "eaa68fad9e5d201d42fde51665f2d137ae96baf0"
         }
       ]
     },
@@ -72,7 +73,8 @@
         "--with-udevdir=/app/lib/udev/"
       ],
       "cleanup": [
-        "/include"
+        "/include",
+        "/lib/pkgconfig"
       ],
       "sources": [
         {
@@ -94,9 +96,9 @@
       "sources": [
         {
           "type": "git",
-          "url": "https://git.videolan.org/git/ffmpeg/nv-codec-headers.git",
-          "tag": "n11.1.5.0",
-          "commit": "b641a195edbe3ac9788e681e22c2e2fad8aacddb"
+          "url": "https://github.com/FFmpeg/nv-codec-headers.git",
+          "tag": "n12.0.16.0",
+          "commit": "c5e4af74850a616c42d39ed45b9b8568b71bf8bf"
         }
       ]
     },
@@ -104,20 +106,22 @@
       "name": "srt",
       "buildsystem": "cmake-ninja",
       "config-opts": [
+        "-DCMAKE_BUILD_TYPE=Release",
         "-DENABLE_STATIC=OFF",
         "-DENABLE_APPS=OFF",
         "-DENABLE_LOGGING=OFF"
       ],
       "cleanup": [
         "/include",
+        "/lib/pkgconfig",
         "/bin"
       ],
       "sources": [
         {
           "type": "git",
           "url": "https://github.com/Haivision/srt.git",
-          "tag": "v1.4.4",
-          "commit": "8b32f3734ff6af7cc7b0fef272591cb80a2d1aae"
+          "tag": "v1.5.1",
+          "commit": "0bc3b03202b3159fc9b085b3ae6d66ec071c25d6"
         }
       ]
     },
@@ -140,8 +144,8 @@
         {
           "type": "git",
           "url": "https://github.com/ARMmbed/mbedtls.git",
-          "commit": "f71e2878084126737cc39083e1e15afc459bd93d",
-          "tag": "v2.27.0"
+          "commit": "869298bffeea13b205343361b7a7daf2b210e33d",
+          "tag": "v3.2.1"
         }
       ]
     },
@@ -156,13 +160,14 @@
         "-Dbuiltin_cjson=true"
       ],
       "cleanup": [
-        "/include"
+        "/include",
+        "/lib/pkgconfig"
       ],
       "sources": [
         {
           "type": "git",
           "url": "https://code.videolan.org/rist/librist.git",
-          "commit": "0b1aaf995c4cad83d562ec7887180cc6ee132c84"
+          "commit": "809390b3b75a259a704079d0fb4d8f1b5f7fa956"
         }
       ]
     },
@@ -180,14 +185,15 @@
         "-DENABLE_TOOLS=OFF "
       ],
       "cleanup": [
-        "/include"
+        "/include",
+        "/lib/pkgconfig"
       ],
       "sources": [
         {
           "type": "git",
           "url": "https://aomedia.googlesource.com/aom.git",
-          "tag": "v3.2.0",
-          "commit": "287164de79516c25c8c84fd544f67752c170082a"
+          "tag": "v3.6.0",
+          "commit": "3c65175b1972da4a1992c1dae2365b48d13f9a8d"
         }
       ]
     },
@@ -204,14 +210,15 @@
         "-DBUILD_TESTING=OFF"
       ],
       "cleanup": [
-        "/include"
+        "/include",
+        "/lib/pkgconfig"
       ],
       "sources": [
         {
           "type": "git",
           "url": "https://gitlab.com/AOMediaCodec/SVT-AV1.git",
-          "tag": "v0.8.6",
-          "commit": "a5ec26c0f0bd6e872a0b2bb340b4a777f4847020"
+          "tag": "v1.4.1",
+          "commit": "018276d714ce65d9b586f6205ee016cbd8d5425d"
         }
       ]
     },
@@ -236,31 +243,27 @@
         "--enable-libsvtav1"
       ],
       "cleanup": [
-        "/share/ffmpeg",
-        "/include"
+        "/share/ffmpeg"
       ],
       "sources": [
         {
           "type": "git",
-          "url": "https://git.ffmpeg.org/ffmpeg.git",
-          "commit": "cc33e73618a981de7fd96385ecb34719de031f16",
+          "url": "https://github.com/FFmpeg/FFmpeg.git",
+          "commit": "a6dc92968a325d331bb6dcf9b3b2248026cd1d6c",
           "disable-shallow-clone": true
         },
         {
           "type": "git",
           "dest": "obs-deps",
           "url": "https://github.com/obsproject/obs-deps.git",
-          "tag": "2022-01-01",
-          "commit": "15072cd42722d87c6b3ed1636b22e98c08575f20"
+          "tag": "2023-04-12",
+          "commit": "24e25fd83e6938cfe3cc5020230430b31ba5df59"
         },
         {
           "type": "shell",
           "commands": [
-            "git cherry-pick -n d1b47f3bfcc625ca1cae210fc198dcbd54381a88 # avcodec/vaapi_encode: Fix segfault upon closing uninitialized encoder",
-            "patch -Np1 -i obs-deps/CI/patches/FFmpeg-4.4.1-OBS.patch",
-            "patch -Np1 -i obs-deps/CI/patches/FFmpeg-4.4.1-librist.patch",
-            "patch -Np1 -i obs-deps/CI/patches/FFmpeg-4.4.1-libaomenc.patch",
-            "patch -Np1 -i obs-deps/CI/patches/FFmpeg-9010.patch"
+            "patch -Np1 -i obs-deps/deps.ffmpeg/patches/FFmpeg/0001-flvdec-handle-unknown.patch",
+            "patch -Np1 -i obs-deps/deps.ffmpeg/patches/FFmpeg/0002-libaomenc-presets.patch"
           ]
         }
       ]
@@ -271,13 +274,14 @@
       "cleanup": [
         "/bin",
         "/include",
+        "/lib/pkgconfig",
         "*.a"
       ],
       "sources": [
         {
           "type": "git",
           "url": "https://luajit.org/git/luajit-2.0.git",
-          "commit": "ec6edc5c39c25e4eb3fca51b753f9995e97215da",
+          "commit": "505e2c03de35e2718eef0d2d3660712e06dadf1f",
           "disable-shallow-clone": true
         },
         {
@@ -310,25 +314,6 @@
       ]
     },
     {
-      "name": "jack2",
-      "buildsystem": "simple",
-      "build-commands": [
-        "./waf configure --prefix=$FLATPAK_DEST",
-        "./waf build -j $FLATPAK_BUILDER_N_JOBS",
-        "./waf install"
-      ],
-      "cleanup": [
-        "*"
-      ],
-      "sources": [
-        {
-          "type": "archive",
-          "url": "https://github.com/jackaudio/jack2/releases/download/v1.9.14/v1.9.14.tar.gz",
-          "sha256": "a20a32366780c0061fd58fbb5f09e514ea9b7ce6e53b080a44b11a558a83217c"
-        }
-      ]
-    },
-    {
       "name": "pipewire",
       "buildsystem": "meson",
       "config-opts": [
@@ -343,14 +328,20 @@
         "-Dbluez5-codec-aptx=disabled",
         "-Dlibcamera=disabled",
         "-Dudevrulesdir=/app/lib/udev/rules.d/",
-        "-Dsession-managers=[]"
+        "-Dsession-managers=[]",
+        "-Dtests=disabled",
+        "-Dexamples=disabled",
+        "-Dpw-cat=disabled"
+      ],
+      "cleanup": [
+        "/bin"
       ],
       "sources": [
         {
           "type": "git",
           "url": "https://github.com/pipewire/pipewire.git",
-          "tag": "0.3.40",
-          "commit": "7afd80052b7c49754a13c9ab49c368f95b60e0a7"
+          "tag": "0.3.65",
+          "commit": "9558a5d5e0360d8af822431c76ee858a8c7495ac"
         }
       ]
     },
@@ -360,7 +351,9 @@
       "builddir": true,
       "config-opts": [
         "-DCMAKE_BUILD_TYPE=Release",
-        "-DAJA_BUILD_OPENSOURCE=ON"
+        "-DAJA_BUILD_OPENSOURCE=ON",
+        "-DAJA_BUILD_APPS=OFF",
+        "-DAJA_INSTALL_HEADERS=ON"
       ],
       "cleanup": [
         "/include"
@@ -369,20 +362,94 @@
         {
           "type": "git",
           "url": "https://github.com/aja-video/ntv2.git",
-          "commit": "abf17cc1e7aadd9f3e4972774a3aba2812c51b75"
-        },
+          "tag": "v16.2-bugfix5",
+          "commit": "0acbac70a0b5e6509cca78cfbf69974c73c10db9"
+        }
+      ]
+    },
+    {
+      "name": "jansson",
+      "buildsystem": "cmake-ninja",
+      "builddir": true,
+      "config-opts": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DJANSSON_EXAMPLES=OFF",
+        "-DJANSSON_BUILD_DOCS=OFF",
+        "-DJANSSON_BUILD_SHARED_LIBS=ON",
+        "-DJANSSON_WITHOUT_TESTS=ON"
+      ],
+      "cleanup": [
+        "/include",
+        "/lib/pkgconfig"
+      ],
+      "sources": [
         {
-          "type": "shell",
-          "commands": [
-            "sed -i 's/Clang|GNU/GNU/g' cmake/CommonFlags.cmake",
-            "sed -i 's/Linux|Darwin/Linux/g' cmake/CommonFlags.cmake"
-          ]
+          "type": "git",
+          "url": "https://github.com/akheron/jansson.git",
+          "tag": "v2.14",
+          "commit": "684e18c927e89615c2d501737e90018f4930d6c5"
+        }
+      ]
+    },
+    {
+      "name": "nlohmann-json",
+      "buildsystem": "cmake-ninja",
+      "builddir": true,
+      "config-opts": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DJSON_BuildTests=OFF"
+      ],
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://github.com/nlohmann/json.git",
+          "tag": "v3.11.2",
+          "commit": "bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d"
+        }
+      ]
+    },
+    {
+      "name": "websocketpp",
+      "buildsystem": "cmake-ninja",
+      "builddir": true,
+      "config-opts": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DENABLE_CPP11=ON",
+        "-DBUILD_EXAMPLES=OFF",
+        "-DBUILD_TESTS=OFF"
+      ],
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://github.com/zaphoyd/websocketpp.git",
+          "tag": "0.8.2",
+          "commit": "56123c87598f8b1dd471be83ca841ceae07f95ba"
+        }
+      ]
+    },
+    {
+      "name": "asio",
+      "buildsystem": "simple",
+      "build-commands": [
+        "mkdir -p /app/include",
+        "cp asio/include/asio.hpp /app/include/",
+        "cp -R asio/include/asio /app/include/"
+      ],
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://github.com/chriskohlhoff/asio.git",
+          "tag": "asio-1-12-1",
+          "commit": "b73dc1d2c0ecb9452a87c26544d7f71e24342df6"
         }
       ]
     },
     {
       "name": "cef",
       "buildsystem": "cmake-ninja",
+      "config-opts": [
+        "-DCMAKE_BUILD_TYPE=Release"
+      ],
       "no-make-install": true,
       "make-args": [
         "libcef_dll_wrapper"
@@ -400,8 +467,8 @@
       "sources": [
         {
           "type": "archive",
-          "url": "https://cdn-fastly.obsproject.com/downloads/cef_binary_4638_linux64.tar.bz2",
-          "sha256": "ea2b50304cfca48f1619db2e2fe35ca8a54bd14aed373179328a41038c7fb86f"
+          "url": "https://cdn-fastly.obsproject.com/downloads/cef_binary_5060_linux64.tar.bz2",
+          "sha256": "ac4e2a8ebf20700e4e36353e314f876623633dd5b474778a2548bb66bdbea11d"
         }
       ]
     },
@@ -412,13 +479,16 @@
       "config-opts": [
         "-DCMAKE_BUILD_TYPE=Release",
         "-DENABLE_WAYLAND=ON",
-        "-DBUILD_BROWSER=ON",
+        "-DENABLE_BROWSER=ON",
         "-DCEF_ROOT_DIR=/app/cef",
-        "-DUNIX_STRUCTURE=ON",
         "-DUSE_XDG=ON",
-        "-DDISABLE_ALSA=ON",
+        "-DENABLE_ALSA=OFF",
         "-DENABLE_PULSEAUDIO=ON",
-        "-DWITH_RTMPS=ON"
+        "-DENABLE_JACK=ON",
+        "-DENABLE_RTMPS=ON",
+        "-DENABLE_VLC=OFF",
+        "-DENABLE_AJA=ON",
+        "-DENABLE_LIBFDK=ON"
       ],
       "secret-opts": [
         "-DRESTREAM_CLIENTID=$RESTREAM_CLIENTID",

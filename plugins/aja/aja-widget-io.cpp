@@ -1,4 +1,5 @@
 #include "aja-widget-io.hpp"
+#include "aja-common.hpp"
 
 #include <ajantv2/includes/ntv2utils.h>
 #include <ajantv2/includes/ntv2signalrouter.h>
@@ -27,7 +28,6 @@ static const char *kBlackNickname = "black";
 static const char *kCompressionNickname = "comp";
 static const char *kFrameSyncNickname = "fsync";
 static const char *kTestPatternNickname = "pat";
-static const char *kOENickname = "oe";
 
 // Table of firmware widget's input crosspoint/id/channel/name/datastream index
 // clang-format off
@@ -285,7 +285,7 @@ static WidgetOutputSocket kWidgetOutputSockets[] = {
 	{ NTV2_XptFrameBuffer2RGB,       NTV2_WgtFrameBuffer2,                kFramebufferNickname,          2},
 	{ NTV2_XptCSC2VidRGB,            NTV2_WgtCSC2,                        kCSCNickname,                  1},
 	{ NTV2_XptMixer1VidRGB,          NTV2_WgtMixer1,                      kMixerNickname,                1},
-	{ NTV2_XptHDMIIn1RGB,            NTV2_WgtHDMIIn1v3,                   kHDMINickname,                 2},
+	{ NTV2_XptHDMIIn1RGB,            NTV2_WgtHDMIIn1v3,                   kHDMINickname,                 4},
 	{ NTV2_XptFrameBuffer3RGB,       NTV2_WgtFrameBuffer3,                kFramebufferNickname,          2},
 	{ NTV2_XptFrameBuffer4RGB,       NTV2_WgtFrameBuffer4,                kFramebufferNickname,          2},
 	{ NTV2_XptDuallinkIn2,           NTV2_WgtDualLinkV2In2,               kDualLinkInNickname,           0},
@@ -298,9 +298,9 @@ static WidgetOutputSocket kWidgetOutputSockets[] = {
 	{ NTV2_XptCSC3VidRGB,            NTV2_WgtCSC3,                        kCSCNickname,                  2},
 	{ NTV2_XptCSC4VidRGB,            NTV2_WgtCSC4,                        kCSCNickname,                  2},
 	{ NTV2_Xpt3DLUT1RGB,             NTV2_Wgt3DLUT1,                      kLUT3DNickname,                1},
-	{ NTV2_XptHDMIIn1Q2RGB,          NTV2_WgtHDMIIn1v3,                   kHDMINickname,                 1},
-	{ NTV2_XptHDMIIn1Q3RGB,          NTV2_WgtHDMIIn1v3,                   kHDMINickname,                 2},
-	{ NTV2_XptHDMIIn1Q4RGB,          NTV2_WgtHDMIIn1v3,                   kHDMINickname,                 3},
+	{ NTV2_XptHDMIIn1Q2RGB,          NTV2_WgtHDMIIn1v3,                   kHDMINickname,                 5},
+	{ NTV2_XptHDMIIn1Q3RGB,          NTV2_WgtHDMIIn1v3,                   kHDMINickname,                 6},
+	{ NTV2_XptHDMIIn1Q4RGB,          NTV2_WgtHDMIIn1v3,                   kHDMINickname,                 7},
 	{ NTV2_Xpt4KDownConverterOutRGB, NTV2_Wgt4KDownConverter,             k4KDownConvertNickname,        1},
 	{ NTV2_XptDuallinkIn5,           NTV2_WgtDualLinkV2In5,               kDualLinkInNickname,           0},
 	{ NTV2_XptDuallinkIn6,           NTV2_WgtDualLinkV2In6,               kDualLinkInNickname,           0},
@@ -341,18 +341,12 @@ static WidgetOutputSocket kWidgetOutputSockets[] = {
 };
 // clang-format on
 
-static const size_t kNumWidgetInputSockets =
-	(sizeof(kWidgetInputSockets) / sizeof(WidgetInputSocket));
-static const size_t kNumWidgetOutputSockets =
-	(sizeof(kWidgetOutputSockets) / sizeof(WidgetOutputSocket));
-
 bool WidgetInputSocket::Find(const std::string &name, NTV2Channel channel,
 			     int32_t datastream, WidgetInputSocket &inp)
 {
 	for (const auto &in : kWidgetInputSockets) {
 		if (name == in.name &&
-		    channel == CNTV2SignalRouter::WidgetIDToChannel(
-				       in.widget_id) &&
+		    channel == aja::WidgetIDToChannel(in.widget_id) &&
 		    datastream == in.datastream_index) {
 			inp = in;
 			return true;
@@ -392,8 +386,7 @@ NTV2Channel WidgetInputSocket::InputXptChannel(InputXpt xpt)
 	NTV2Channel channel = NTV2_CHANNEL_INVALID;
 	for (auto &x : kWidgetInputSockets) {
 		if (x.id == xpt) {
-			channel = CNTV2SignalRouter::WidgetIDToChannel(
-				x.widget_id);
+			channel = aja::WidgetIDToChannel(x.widget_id);
 			break;
 		}
 	}
@@ -420,8 +413,7 @@ bool WidgetOutputSocket::Find(const std::string &name, NTV2Channel channel,
 	// 	  << ", datastream = " << datastream << std::endl;
 	for (const auto &wo : kWidgetOutputSockets) {
 		if (name == wo.name &&
-		    channel == CNTV2SignalRouter::WidgetIDToChannel(
-				       wo.widget_id) &&
+		    channel == aja::WidgetIDToChannel(wo.widget_id) &&
 		    datastream == wo.datastream_index) {
 			out = wo;
 			return true;
@@ -461,8 +453,7 @@ NTV2Channel WidgetOutputSocket::OutputXptChannel(OutputXpt xpt)
 	NTV2Channel channel = NTV2_CHANNEL_INVALID;
 	for (auto &x : kWidgetOutputSockets) {
 		if (x.id == xpt) {
-			channel = CNTV2SignalRouter::WidgetIDToChannel(
-				x.widget_id);
+			channel = aja::WidgetIDToChannel(x.widget_id);
 			break;
 		}
 	}

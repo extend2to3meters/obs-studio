@@ -1,5 +1,5 @@
+add_subdirectory(aja-output-ui)
+add_subdirectory(decklink-captions)
 add_subdirectory(decklink-output-ui)
 add_subdirectory(frontend-tools)
-add_subdirectory(decklink-captions)
 add_subdirectory(obsplay)
-add_subdirectory(aja-output-ui)

@@ -113,10 +113,8 @@ private slots:
 	void on_actionMoveUp_triggered();
 	void on_actionMoveDown_triggered();
 
-	void AsyncFilterNameEdited(QWidget *editor,
-				   QAbstractItemDelegate::EndEditHint endHint);
-	void EffectFilterNameEdited(QWidget *editor,
-				    QAbstractItemDelegate::EndEditHint endHint);
+	void AsyncFilterNameEdited(QWidget *editor);
+	void EffectFilterNameEdited(QWidget *editor);
 
 	void CopyFilter();
 	void PasteFilter();
@@ -135,4 +133,11 @@ public:
 
 protected:
 	virtual void closeEvent(QCloseEvent *event) override;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+	virtual bool nativeEvent(const QByteArray &eventType, void *message,
+				 qintptr *result) override;
+#else
+	virtual bool nativeEvent(const QByteArray &eventType, void *message,
+				 long *result) override;
+#endif
 };

@@ -88,6 +88,13 @@ enum obs_text_type {
 	OBS_TEXT_DEFAULT,
 	OBS_TEXT_PASSWORD,
 	OBS_TEXT_MULTILINE,
+	OBS_TEXT_INFO,
+};
+
+enum obs_text_info_type {
+	OBS_TEXT_INFO_NORMAL,
+	OBS_TEXT_INFO_WARNING,
+	OBS_TEXT_INFO_ERROR,
 };
 
 enum obs_number_type {
@@ -203,7 +210,7 @@ EXPORT obs_property_t *obs_properties_add_text(obs_properties_t *props,
  * Adds a 'path' property.  Can be a directory or a file.
  *
  * If target is a file path, the filters should be this format, separated by
- * double semi-colens, and extensions separated by space:
+ * double semicolons, and extensions separated by space:
  *   "Example types 1 and 2 (*.ex1 *.ex2);;Example type 3 (*.ex3)"
  *
  * @param  props        Properties object
@@ -212,7 +219,7 @@ EXPORT obs_property_t *obs_properties_add_text(obs_properties_t *props,
  * @param  type         Type of path (directory or file)
  * @param  filter       If type is a file path, then describes the file filter
  *                      that the user can browse.  Items are separated via
- *                      double semi-colens.  If multiple file types in a
+ *                      double semicolons.  If multiple file types in a
  *                      filter, separate with space.
  */
 EXPORT obs_property_t *
@@ -323,7 +330,9 @@ EXPORT double obs_property_float_step(obs_property_t *p);
 EXPORT enum obs_number_type obs_property_float_type(obs_property_t *p);
 EXPORT const char *obs_property_float_suffix(obs_property_t *p);
 EXPORT enum obs_text_type obs_property_text_type(obs_property_t *p);
-EXPORT enum obs_text_type obs_property_text_monospace(obs_property_t *p);
+EXPORT bool obs_property_text_monospace(obs_property_t *p);
+EXPORT enum obs_text_info_type obs_property_text_info_type(obs_property_t *p);
+EXPORT bool obs_property_text_info_word_wrap(obs_property_t *p);
 EXPORT enum obs_path_type obs_property_path_type(obs_property_t *p);
 EXPORT const char *obs_property_path_filter(obs_property_t *p);
 EXPORT const char *obs_property_path_default_path(obs_property_t *p);
@@ -338,6 +347,10 @@ EXPORT void obs_property_int_set_suffix(obs_property_t *p, const char *suffix);
 EXPORT void obs_property_float_set_suffix(obs_property_t *p,
 					  const char *suffix);
 EXPORT void obs_property_text_set_monospace(obs_property_t *p, bool monospace);
+EXPORT void obs_property_text_set_info_type(obs_property_t *p,
+					    enum obs_text_info_type type);
+EXPORT void obs_property_text_set_info_word_wrap(obs_property_t *p,
+						 bool word_wrap);
 
 EXPORT void obs_property_button_set_type(obs_property_t *p,
 					 enum obs_button_type type);
