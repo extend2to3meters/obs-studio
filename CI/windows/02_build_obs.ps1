@@ -117,7 +117,8 @@ function Configure-OBS {
         )
     }
 
-    Invoke-External cmake -S . -B  "${BuildDirectoryActual}" @CmakeCommand
+    # Invoke-External cmake -S . -B  "${BuildDirectoryActual}" @CmakeCommand "-DENABLE_PIPEWIRE=OFF -DBUILD_BROWSER=OFF -DUNIX_STRUCTURE=1 -DENABLE_VLC=OFF -DDISABLE_PLUGINS=ON" 2>$null
+    Invoke-External cmake -S . -B  "${BuildDirectoryActual}" @CmakeCommand "-DENABLE_PIPEWIRE=OFF -DBUILD_BROWSER=OFF -DUNIX_STRUCTURE=1 -DENABLE_VLC=OFF -DDISABLE_PLUGINS=ON"
 
     Ensure-Directory ${CheckoutDir}
 }
