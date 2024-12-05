@@ -39,11 +39,11 @@ struct decklink_ui_output {
 };
 
 static struct decklink_ui_output context = {0};
+static struct decklink_ui_output context_preview = {0};
 
 OBSData load_settings()
 {
-	BPtr<char> path = obs_module_get_config_path(
-		obs_current_module(), "decklinkOutputProps.json");
+	BPtr<char> path = obs_module_get_config_path(obs_current_module(), "decklinkOutputProps.json");
 	BPtr<char> jsonData = os_quick_read_utf8_file(path);
 	if (!!jsonData) {
 		obs_data_t *data = obs_data_create_from_json(jsonData);
@@ -61,10 +61,10 @@ static void decklink_ui_render(void *param);
 
 void output_stop()
 {
+	obs_remove_main_rendered_callback(decklink_ui_render, &context);
+
 	obs_output_stop(context.output);
 	obs_output_release(context.output);
-
-	obs_remove_main_rendered_callback(decklink_ui_render, &context);
 
 	obs_enter_graphics();
 	for (gs_stagesurf_t *&surf : context.stagesurfaces) {
@@ -89,10 +89,8 @@ void output_start()
 	OBSData settings = load_settings();
 
 	if (settings != nullptr) {
-		obs_output_t *const output = obs_output_create(
-			"decklink_output", "decklink_output", settings, NULL);
-		const struct video_scale_info *const conversion =
-			obs_output_get_video_conversion(output);
+		obs_output_t *const output = obs_output_create("decklink_output", "decklink_output", settings, NULL);
+		const struct video_scale_info *const conversion = obs_output_get_video_conversion(output);
 		if (conversion != nullptr) {
 			context.output = output;
 			obs_add_tick_callback(decklink_ui_tick, &context);
@@ -104,20 +102,15 @@ void output_start()
 
 			obs_enter_graphics();
 			context.texrender_premultiplied = nullptr;
-			context.texrender =
-				gs_texrender_create(GS_BGRA, GS_ZS_NONE);
+			context.texrender = gs_texrender_create(GS_BGRA, GS_ZS_NONE);
 			for (gs_stagesurf_t *&surf : context.stagesurfaces)
-				surf = gs_stagesurface_create(width, height,
-							      GS_BGRA);
+				surf = gs_stagesurface_create(width, height, GS_BGRA);
 			obs_leave_graphics();
 
 			for (bool &written : context.surf_written)
 				written = false;
 
 			context.stage_index = 0;
-
-			const video_output_info *mainVOI =
-				video_output_get_info(obs_get_video());
 
 			video_output_info vi = {0};
 			vi.format = VIDEO_FORMAT_BGRA;
@@ -126,19 +119,16 @@ void output_start()
 			vi.fps_den = context.ovi.fps_den;
 			vi.fps_num = context.ovi.fps_num;
 			vi.cache_size = 16;
-			vi.colorspace = mainVOI->colorspace;
+			vi.colorspace = VIDEO_CS_DEFAULT;
 			vi.range = VIDEO_RANGE_FULL;
 			vi.name = "decklink_output";
 
 			video_output_open(&context.video_queue, &vi);
 
 			context.current_source = nullptr;
-			obs_add_main_rendered_callback(decklink_ui_render,
-						       &context);
+			obs_add_main_rendered_callback(decklink_ui_render, &context);
 
-			obs_output_set_media(context.output,
-					     context.video_queue,
-					     obs_get_audio());
+			obs_output_set_media(context.output, context.video_queue, obs_get_audio());
 			bool started = obs_output_start(context.output);
 
 			main_output_running = started;
@@ -164,8 +154,7 @@ void output_toggle()
 
 OBSData load_preview_settings()
 {
-	BPtr<char> path = obs_module_get_config_path(
-		obs_current_module(), "decklinkPreviewOutputProps.json");
+	BPtr<char> path = obs_module_get_config_path(obs_current_module(), "decklinkPreviewOutputProps.json");
 	BPtr<char> jsonData = os_quick_read_utf8_file(path);
 	if (!!jsonData) {
 		obs_data_t *data = obs_data_create_from_json(jsonData);
@@ -192,27 +181,27 @@ static void decklink_ui_tick(void *param, float /* sec */)
 
 void preview_output_stop()
 {
-	obs_output_stop(context.output);
-	obs_output_release(context.output);
+	obs_remove_main_rendered_callback(decklink_ui_render, &context_preview);
+	obs_frontend_remove_event_callback(on_preview_scene_changed, &context_preview);
 
-	obs_remove_main_rendered_callback(decklink_ui_render, &context);
-	obs_frontend_remove_event_callback(on_preview_scene_changed, &context);
+	obs_output_stop(context_preview.output);
+	obs_output_release(context_preview.output);
 
-	obs_source_release(context.current_source);
+	obs_source_release(context_preview.current_source);
 
 	obs_enter_graphics();
-	for (gs_stagesurf_t *&surf : context.stagesurfaces) {
+	for (gs_stagesurf_t *&surf : context_preview.stagesurfaces) {
 		gs_stagesurface_destroy(surf);
 		surf = nullptr;
 	}
-	gs_texrender_destroy(context.texrender);
-	context.texrender = nullptr;
-	gs_texrender_destroy(context.texrender_premultiplied);
-	context.texrender_premultiplied = nullptr;
+	gs_texrender_destroy(context_preview.texrender);
+	context_preview.texrender = nullptr;
+	gs_texrender_destroy(context_preview.texrender_premultiplied);
+	context_preview.texrender_premultiplied = nullptr;
 	obs_leave_graphics();
 
-	video_output_close(context.video_queue);
-	obs_remove_tick_callback(decklink_ui_tick, &context);
+	video_output_close(context_preview.video_queue);
+	obs_remove_tick_callback(decklink_ui_tick, &context_preview);
 
 	preview_output_running = false;
 
@@ -225,66 +214,52 @@ void preview_output_start()
 	OBSData settings = load_preview_settings();
 
 	if (settings != nullptr) {
-		obs_output_t *const output = obs_output_create(
-			"decklink_output", "decklink_output", settings, NULL);
-		const struct video_scale_info *const conversion =
-			obs_output_get_video_conversion(output);
+		obs_output_t *const output = obs_output_create("decklink_output", "decklink_output", settings, NULL);
+		const struct video_scale_info *const conversion = obs_output_get_video_conversion(output);
 		if (conversion != nullptr) {
-			context.output = output;
-			obs_add_tick_callback(decklink_ui_tick, &context);
+			context_preview.output = output;
+			obs_add_tick_callback(decklink_ui_tick, &context_preview);
 
-			obs_get_video_info(&context.ovi);
+			obs_get_video_info(&context_preview.ovi);
 
 			const uint32_t width = conversion->width;
 			const uint32_t height = conversion->height;
 
 			obs_enter_graphics();
-			context.texrender_premultiplied =
-				gs_texrender_create(GS_BGRA, GS_ZS_NONE);
-			context.texrender =
-				gs_texrender_create(GS_BGRA, GS_ZS_NONE);
-			for (gs_stagesurf_t *&surf : context.stagesurfaces)
-				surf = gs_stagesurface_create(width, height,
-							      GS_BGRA);
+			context_preview.texrender_premultiplied = gs_texrender_create(GS_BGRA, GS_ZS_NONE);
+			context_preview.texrender = gs_texrender_create(GS_BGRA, GS_ZS_NONE);
+			for (gs_stagesurf_t *&surf : context_preview.stagesurfaces)
+				surf = gs_stagesurface_create(width, height, GS_BGRA);
 			obs_leave_graphics();
 
-			for (bool &written : context.surf_written)
+			for (bool &written : context_preview.surf_written)
 				written = false;
 
-			context.stage_index = 0;
-
-			const video_output_info *mainVOI =
-				video_output_get_info(obs_get_video());
+			context_preview.stage_index = 0;
 
 			video_output_info vi = {0};
 			vi.format = VIDEO_FORMAT_BGRA;
 			vi.width = width;
 			vi.height = height;
-			vi.fps_den = context.ovi.fps_den;
-			vi.fps_num = context.ovi.fps_num;
+			vi.fps_den = context_preview.ovi.fps_den;
+			vi.fps_num = context_preview.ovi.fps_num;
 			vi.cache_size = 16;
-			vi.colorspace = mainVOI->colorspace;
+			vi.colorspace = VIDEO_CS_DEFAULT;
 			vi.range = VIDEO_RANGE_FULL;
 			vi.name = "decklink_preview_output";
 
-			video_output_open(&context.video_queue, &vi);
+			video_output_open(&context_preview.video_queue, &vi);
 
-			obs_frontend_add_event_callback(
-				on_preview_scene_changed, &context);
+			obs_frontend_add_event_callback(on_preview_scene_changed, &context_preview);
 			if (obs_frontend_preview_program_mode_active()) {
-				context.current_source =
-					obs_frontend_get_current_preview_scene();
+				context_preview.current_source = obs_frontend_get_current_preview_scene();
 			} else {
-				context.current_source =
-					obs_frontend_get_current_scene();
+				context_preview.current_source = obs_frontend_get_current_scene();
 			}
-			obs_add_main_rendered_callback(decklink_ui_render,
-						       &context);
+			obs_add_main_rendered_callback(decklink_ui_render, &context_preview);
 
-			obs_output_set_media(context.output,
-					     context.video_queue,
-					     obs_get_audio());
-			bool started = obs_output_start(context.output);
+			obs_output_set_media(context_preview.output, context_preview.video_queue, obs_get_audio());
+			bool started = obs_output_start(context_preview.output);
 
 			preview_output_running = started;
 			if (!shutting_down)
@@ -338,22 +313,27 @@ static void decklink_ui_render(void *param)
 	uint32_t height = 0;
 	gs_texture_t *tex = nullptr;
 
-	if (main_output_running) {
+	if (ctx == &context) {
+		if (!main_output_running)
+			return;
+
 		tex = obs_get_main_texture();
 		if (!tex)
 			return;
 
 		width = gs_texture_get_width(tex);
 		height = gs_texture_get_height(tex);
-	} else if (preview_output_running) {
+	} else if (ctx == &context_preview) {
+		if (!preview_output_running)
+			return;
+
 		if (!ctx->current_source)
 			return;
 
 		width = obs_source_get_base_width(ctx->current_source);
 		height = obs_source_get_base_height(ctx->current_source);
 
-		gs_texrender_t *const texrender_premultiplied =
-			ctx->texrender_premultiplied;
+		gs_texrender_t *const texrender_premultiplied = ctx->texrender_premultiplied;
 		if (!gs_texrender_begin(texrender_premultiplied, width, height))
 			return;
 
@@ -361,8 +341,7 @@ static void decklink_ui_render(void *param)
 		vec4_zero(&background);
 
 		gs_clear(GS_CLEAR_COLOR, &background, 0.0f, 0);
-		gs_ortho(0.0f, (float)width, 0.0f, (float)height, -100.0f,
-			 100.0f);
+		gs_ortho(0.0f, (float)width, 0.0f, (float)height, -100.0f, 100.0f);
 
 		gs_blend_state_push();
 		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
@@ -377,8 +356,7 @@ static void decklink_ui_render(void *param)
 		return;
 	}
 
-	const struct video_scale_info *const conversion =
-		obs_output_get_video_conversion(context.output);
+	const struct video_scale_info *const conversion = obs_output_get_video_conversion(ctx->output);
 	const uint32_t scaled_width = conversion->width;
 	const uint32_t scaled_height = conversion->height;
 
@@ -386,13 +364,18 @@ static void decklink_ui_render(void *param)
 		return;
 
 	const bool previous = gs_framebuffer_srgb_enabled();
-	gs_enable_framebuffer_srgb(true);
+	const bool source_hdr = (ctx->ovi.colorspace == VIDEO_CS_2100_PQ) || (ctx->ovi.colorspace == VIDEO_CS_2100_HLG);
+	const bool target_hdr = source_hdr && (conversion->colorspace == VIDEO_CS_2100_PQ);
+	gs_enable_framebuffer_srgb(!target_hdr);
 	gs_enable_blending(false);
 
 	gs_effect_t *const effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
-	gs_effect_set_texture_srgb(gs_effect_get_param_by_name(effect, "image"),
-				   tex);
-	while (gs_effect_loop(effect, "DrawAlphaDivide")) {
+	gs_effect_set_texture_srgb(gs_effect_get_param_by_name(effect, "image"), tex);
+	const char *const tech_name = target_hdr ? "DrawAlphaDivideR10L"
+						 : (source_hdr ? "DrawAlphaDivideTonemap" : "DrawAlphaDivide");
+	while (gs_effect_loop(effect, tech_name)) {
+		gs_effect_set_float(gs_effect_get_param_by_name(effect, "multiplier"),
+				    obs_get_video_sdr_white_level() / 10000.f);
 		gs_draw_sprite(tex, 0, 0, 0);
 	}
 
@@ -402,28 +385,20 @@ static void decklink_ui_render(void *param)
 	gs_texrender_end(ctx->texrender);
 
 	const size_t write_stage_index = ctx->stage_index;
-	gs_stage_texture(ctx->stagesurfaces[write_stage_index],
-			 gs_texrender_get_texture(ctx->texrender));
+	gs_stage_texture(ctx->stagesurfaces[write_stage_index], gs_texrender_get_texture(ctx->texrender));
 	ctx->surf_written[write_stage_index] = true;
 
-	const size_t read_stage_index =
-		(write_stage_index + 1) % STAGE_BUFFER_COUNT;
+	const size_t read_stage_index = (write_stage_index + 1) % STAGE_BUFFER_COUNT;
 	if (ctx->surf_written[read_stage_index]) {
 		struct video_frame output_frame;
-		if (video_output_lock_frame(ctx->video_queue, &output_frame, 1,
-					    os_gettime_ns())) {
-			gs_stagesurf_t *const read_surf =
-				ctx->stagesurfaces[read_stage_index];
-			if (gs_stagesurface_map(read_surf, &ctx->video_data,
-						&ctx->video_linesize)) {
+		if (video_output_lock_frame(ctx->video_queue, &output_frame, 1, os_gettime_ns())) {
+			gs_stagesurf_t *const read_surf = ctx->stagesurfaces[read_stage_index];
+			if (gs_stagesurface_map(read_surf, &ctx->video_data, &ctx->video_linesize)) {
 				uint32_t linesize = output_frame.linesize[0];
 				for (uint32_t i = 0; i < scaled_height; i++) {
 					uint32_t dst_offset = linesize * i;
-					uint32_t src_offset =
-						ctx->video_linesize * i;
-					memcpy(output_frame.data[0] +
-						       dst_offset,
-					       ctx->video_data + src_offset,
+					uint32_t src_offset = ctx->video_linesize * i;
+					memcpy(output_frame.data[0] + dst_offset, ctx->video_data + src_offset,
 					       linesize);
 				}
 
@@ -440,8 +415,7 @@ static void decklink_ui_render(void *param)
 
 void addOutputUI(void)
 {
-	QAction *action = (QAction *)obs_frontend_add_tools_menu_qaction(
-		obs_module_text("Decklink Output"));
+	QAction *action = (QAction *)obs_frontend_add_tools_menu_qaction(obs_module_text("Decklink Output"));
 
 	QMainWindow *window = (QMainWindow *)obs_frontend_get_main_window();
 
@@ -449,7 +423,9 @@ void addOutputUI(void)
 	doUI = new DecklinkOutputUI(window);
 	obs_frontend_pop_ui_translation();
 
-	auto cb = []() { doUI->ShowHideDialog(); };
+	auto cb = []() {
+		doUI->ShowHideDialog();
+	};
 
 	action->connect(action, &QAction::triggered, cb);
 }
@@ -464,8 +440,7 @@ static void OBSEvent(enum obs_frontend_event event, void *)
 
 		OBSData previewSettings = load_preview_settings();
 
-		if (previewSettings &&
-		    obs_data_get_bool(previewSettings, "auto_start"))
+		if (previewSettings && obs_data_get_bool(previewSettings, "auto_start"))
 			preview_output_start();
 	} else if (event == OBS_FRONTEND_EVENT_EXIT) {
 		shutting_down = true;
